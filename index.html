@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>עדכון סטטוס לפי מק"ט (Excel → API)</title>
+    <title>עדכון סטטוס לפי מק"ט (Excel → API) - v1.0.0</title>
 
     <!-- UI -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -17,13 +17,43 @@
     <style>
       body { font-family: 'Assistant', sans-serif; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      .version-badge {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.8; }
+      }
     </style>
   </head>
   <body class="bg-gray-100 text-gray-800">
     <header class="bg-white shadow-md sticky top-0 z-50">
       <nav class="container mx-auto px-6 py-4 flex items-center justify-between">
-        <h1 class="text-2xl md:text-3xl font-bold text-red-800">עדכון סטטוס מוצרים דרך API</h1>
-        <a href="./INDEX.HTML" class="text-sm text-gray-500 hover:text-red-700">חזרה לאתר</a>
+        <div class="flex items-center gap-4">
+          <h1 class="text-2xl md:text-3xl font-bold text-red-800">עדכון סטטוס מוצרים דרך API</h1>
+          <div class="version-badge text-white px-3 py-1 rounded-full text-sm font-bold shadow-lg">
+            v<span id="app-version">1.0.0</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="text-xs text-gray-500 text-left">
+            <div>עדכון אחרון: <span id="last-update">היום</span></div>
+            <div>Build: <span id="build-number">1</span></div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="version-history-btn" class="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded" title="היסטוריית גרסאות">
+              📋 היסטוריה
+            </button>
+            <button id="auto-increment-btn" class="text-xs bg-purple-100 hover:bg-purple-200 text-purple-800 px-2 py-1 rounded" title="עדכון אוטומטי לגרסה הבאה">
+              🚀 עדכון גרסה
+            </button>
+            <button id="check-updates-btn" class="text-xs bg-green-100 hover:bg-green-200 text-green-800 px-2 py-1 rounded" title="בדיקת עדכונים">
+              🔍 עדכונים
+            </button>
+          </div>
+          <a href="./INDEX.HTML" class="text-sm text-gray-500 hover:text-red-700">חזרה לאתר</a>
+        </div>
       </nav>
     </header>
 
@@ -190,6 +220,183 @@
 
       let parsedSkus = [];
       let lastFailures = [];
+
+      // מערכת ניהול גרסאות
+      const VERSION_CONFIG = {
+        current: '1.0.0',
+        buildNumber: 1,
+        lastUpdate: new Date().toLocaleDateString('he-IL'),
+        updateHistory: [
+          { version: '1.0.0', date: new Date().toLocaleDateString('he-IL'), changes: ['גרסה ראשונית', 'תמיכה ב-Excel/CSV', 'API integration', 'CORS proxy support'] }
+        ]
+      };
+
+      // פונקציות לניהול גרסאות
+      function updateVersion(newVersion, changes = []) {
+        const [major, minor, patch] = newVersion.split('.').map(Number);
+        const [currentMajor, currentMinor, currentPatch] = VERSION_CONFIG.current.split('.').map(Number);
+        
+        // בדיקה שהגרסה החדשה גבוהה יותר
+        if (major < currentMajor || (major === currentMajor && minor < currentMinor) || 
+            (major === currentMajor && minor === currentMinor && patch <= currentPatch)) {
+          console.warn('הגרסה החדשה חייבת להיות גבוהה יותר מהנוכחית');
+          return false;
+        }
+        
+        // עדכון הגרסה
+        VERSION_CONFIG.current = newVersion;
+        VERSION_CONFIG.buildNumber++;
+        VERSION_CONFIG.lastUpdate = new Date().toLocaleDateString('he-IL');
+        
+        // הוספה להיסטוריה
+        VERSION_CONFIG.updateHistory.push({
+          version: newVersion,
+          date: VERSION_CONFIG.lastUpdate,
+          changes: changes.length > 0 ? changes : [`עדכון לגרסה ${newVersion}`]
+        });
+        
+        // שמירה ב-localStorage
+        saveToStorage('version-config', VERSION_CONFIG);
+        
+        // עדכון הממשק
+        updateVersionDisplay();
+        
+        // עדכון כותרת הדף
+        document.title = `עדכון סטטוס לפי מק"ט (Excel → API) - v${newVersion}`;
+        
+        console.log(`✅ הגרסה עודכנה ל-${newVersion} (Build ${VERSION_CONFIG.buildNumber})`);
+        return true;
+      }
+
+      function updateVersionDisplay() {
+        const versionEl = document.getElementById('app-version');
+        const lastUpdateEl = document.getElementById('last-update');
+        const buildNumberEl = document.getElementById('build-number');
+        
+        if (versionEl) versionEl.textContent = VERSION_CONFIG.current;
+        if (lastUpdateEl) lastUpdateEl.textContent = VERSION_CONFIG.lastUpdate;
+        if (buildNumberEl) buildNumberEl.textContent = VERSION_CONFIG.buildNumber;
+      }
+
+      function showVersionHistory() {
+        const history = VERSION_CONFIG.updateHistory.map(entry => 
+          `v${entry.version} (${entry.date}): ${entry.changes.join(', ')}`
+        ).join('\n');
+        
+        alert(`📋 היסטוריית גרסאות:\n\n${history}`);
+      }
+
+      function incrementVersion(type = 'patch') {
+        const [major, minor, patch] = VERSION_CONFIG.current.split('.').map(Number);
+        let newVersion;
+        
+        switch(type) {
+          case 'major':
+            newVersion = `${major + 1}.0.0`;
+            break;
+          case 'minor':
+            newVersion = `${major}.${minor + 1}.0`;
+            break;
+          case 'patch':
+          default:
+            newVersion = `${major}.${minor}.${patch + 1}`;
+            break;
+        }
+        
+        return updateVersion(newVersion);
+      }
+
+      // פונקציה לבדיקת עדכונים (מתחברת ל-Git)
+      async function checkForUpdates() {
+        try {
+          // כאן אפשר להוסיף בדיקה מול Git repository
+          // לדוגמה: בדיקת תאריך ה-commit האחרון
+          console.log('🔍 בודק עדכונים...');
+          
+          // בדיקה אם יש גרסה חדשה ב-localStorage (ממחשב אחר)
+          const storedVersion = loadFromStorage('version-config', null);
+          if (storedVersion && storedVersion.current !== VERSION_CONFIG.current) {
+            console.log('📦 נמצאה גרסה חדשה:', storedVersion.current);
+            // אפשר להוסיף התראה למשתמש
+          }
+          
+        } catch (error) {
+          console.log('לא ניתן לבדוק עדכונים:', error.message);
+        }
+      }
+
+      // פונקציה לעדכון אוטומטי של גרסה (לאחר PUSH)
+      function autoIncrementVersion(pushType = 'patch') {
+        const oldVersion = VERSION_CONFIG.current;
+        const success = incrementVersion(pushType);
+        
+        if (success) {
+          console.log(`🚀 גרסה עודכנה אוטומטית מ-${oldVersion} ל-${VERSION_CONFIG.current} (${pushType} update)`);
+          
+          // הוספת הודעה למשתמש
+          const notification = document.createElement('div');
+          notification.className = 'fixed top-20 right-6 bg-green-500 text-white px-4 py-2 rounded shadow-lg z-50';
+          notification.innerHTML = `✅ גרסה עודכנה ל-${VERSION_CONFIG.current}`;
+          document.body.appendChild(notification);
+          
+          // הסרה אוטומטית אחרי 3 שניות
+          setTimeout(() => {
+            if (notification.parentNode) {
+              notification.parentNode.removeChild(notification);
+            }
+          }, 3000);
+          
+          return true;
+        }
+        
+        return false;
+      }
+
+      // פונקציה לניהול גרסאות מתקדם (למפתחים)
+      function advancedVersionControl(action, ...params) {
+        switch(action) {
+          case 'set':
+            if (params[0]) {
+              return updateVersion(params[0], params[1] || []);
+            }
+            break;
+          case 'major':
+            return incrementVersion('major');
+          case 'minor':
+            return incrementVersion('minor');
+          case 'patch':
+            return incrementVersion('patch');
+          case 'reset':
+            VERSION_CONFIG.buildNumber = 1;
+            VERSION_CONFIG.lastUpdate = new Date().toLocaleDateString('he-IL');
+            saveToStorage('version-config', VERSION_CONFIG);
+            updateVersionDisplay();
+            return true;
+          case 'export':
+            const dataStr = JSON.stringify(VERSION_CONFIG, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `version-config-${VERSION_CONFIG.current}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+            return true;
+          default:
+            console.log('פעולות זמינות: set, major, minor, patch, reset, export');
+            return false;
+        }
+      }
+
+      // הוספת פונקציות גלובליות לנוחות המפתח
+      window.versionControl = {
+        increment: incrementVersion,
+        autoIncrement: autoIncrementVersion,
+        advanced: advancedVersionControl,
+        getCurrent: () => VERSION_CONFIG.current,
+        getBuild: () => VERSION_CONFIG.buildNumber,
+        getHistory: () => VERSION_CONFIG.updateHistory
+      };
 
       const POSSIBLE_SKU_HEADERS = [
         'SKU', 'sku', 'Sku', 'ERPid', 'Erpid', 'erpId', 'ERPID',
@@ -631,12 +838,38 @@
       function initApp() {
         loadSavedSettings();
         setupAutoSave();
-        updateStatusPreview();
+        updateVersionDisplay();
         
         // הוספת מאזינים לשינויי סטטוס
         document.querySelectorAll('input[name="status"]').forEach(radio => {
           radio.addEventListener('change', updateStatusPreview);
         });
+
+        // הוספת מאזינים לניהול גרסאות
+        const versionHistoryBtn = document.getElementById('version-history-btn');
+        const autoIncrementBtn = document.getElementById('auto-increment-btn');
+        const checkUpdatesBtn = document.getElementById('check-updates-btn');
+        
+        if (versionHistoryBtn) {
+          versionHistoryBtn.addEventListener('click', showVersionHistory);
+        }
+        
+        if (autoIncrementBtn) {
+          autoIncrementBtn.addEventListener('click', () => autoIncrementVersion());
+        }
+
+        if (checkUpdatesBtn) {
+          checkUpdatesBtn.addEventListener('click', checkForUpdates);
+        }
+
+        // טעינת הגדרות גרסאות שמורות
+        const savedVersionConfig = loadFromStorage('version-config', null);
+        if (savedVersionConfig && savedVersionConfig.current !== VERSION_CONFIG.current) {
+          // עדכון הגרסה מהשמירה
+          Object.assign(VERSION_CONFIG, savedVersionConfig);
+          updateVersionDisplay();
+          document.title = `עדכון סטטוס לפי מק"ט (Excel → API) - v${VERSION_CONFIG.current}`;
+        }
       }
 
       analyzeBtn.addEventListener('click', async () => {
@@ -759,6 +992,24 @@
 
       // הפעלת האפליקציה
       initApp();
+
+      // הוראות למפתחים - פתח את הקונסול (F12) כדי לראות
+      console.log(`
+🚀 מערכת ניהול גרסאות מוכנה!
+
+📋 פקודות זמינות בקונסול:
+• versionControl.getCurrent() - קבלת הגרסה הנוכחית
+• versionControl.getBuild() - קבלת מספר הבילד
+• versionControl.getHistory() - קבלת היסטוריית גרסאות
+• versionControl.increment('patch') - עדכון לגרסה הבאה (patch)
+• versionControl.increment('minor') - עדכון לגרסה הבאה (minor)
+• versionControl.increment('major') - עדכון לגרסה הבאה (major)
+• versionControl.autoIncrement() - עדכון אוטומטי (patch)
+• versionControl.advanced('export') - ייצוא הגדרות גרסאות
+• versionControl.advanced('reset') - איפוס מספר הבילד
+
+💡 טיפ: השתמש ב-versionControl.autoIncrement() אחרי כל PUSH!
+      `);
     </script>
   </body>
 </html>
