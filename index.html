@@ -37,6 +37,15 @@
             <label class="block">
               <span class="block mb-1">כתובת ה-API</span>
               <input id="api-url" type="text" class="w-full border rounded px-3 py-2" placeholder="https://api.example.com/products/update" />
+              <div class="mt-2">
+                <label class="inline-flex items-center">
+                  <input id="use-cors-proxy" type="checkbox" class="mr-2" checked />
+                  <span class="text-sm text-blue-600">השתמש ב-CORS Proxy (פותר בעיות גישה)</span>
+                </label>
+                <div class="mt-1 text-xs text-gray-500">
+                  CORS Proxy עוזר לפתור בעיות גישה משרתים שלא מאפשרים בקשות מהדפדפן
+                </div>
+              </div>
             </label>
             <div class="grid grid-cols-2 gap-3">
               <label>
@@ -148,7 +157,7 @@
           <div id="failures" class="mt-3 text-sm whitespace-pre-wrap"></div>
         </details>
 
-        <p class="text-xs text-gray-500">הערת CORS: אם הדפדפן חוסם את הבקשה, יש לאפשר CORS בשרת ה-API או להשתמש בפרוקסי שרת.</p>
+        <p class="text-xs text-gray-500">הערת CORS: אם הדפדפן חוסם את הבקשה, יש לאפשר CORS בשרת ה-API או להשתמש ב-CORS Proxy (מומלץ).</p>
       </section>
     </main>
 
@@ -174,6 +183,7 @@
       const extraHeadersEl = document.getElementById('extra-headers');
       const skuColumnNameEl = document.getElementById('sku-column-name');
       const concurrencyEl = document.getElementById('concurrency');
+      const useCorsProxyEl = document.getElementById('use-cors-proxy');
 
       let parsedSkus = [];
       let lastFailures = [];
@@ -182,6 +192,17 @@
         'SKU', 'sku', 'Sku', 'ERPid', 'Erpid', 'erpId', 'ERPID',
         'מקט', 'מק"ט', 'מקט.', 'מק"ט.', 'מקטים', 'ProductSKU', 'Barcode', 'ברקוד'
       ];
+
+      // פונקציה לטיפול ב-CORS Proxy
+      function buildApiUrl(originalUrl) {
+        if (!useCorsProxyEl.checked) {
+          return originalUrl;
+        }
+        
+        // שימוש ב-CORS Proxy
+        const corsProxy = 'https://cors-anywhere.herokuapp.com/';
+        return corsProxy + originalUrl;
+      }
 
       // פונקציות לשמירה וטעינה מ-localStorage
       function saveToStorage(key, value) {
@@ -212,6 +233,7 @@
         extraHeadersEl.value = loadFromStorage('extra-headers', '');
         skuColumnNameEl.value = loadFromStorage('sku-column-name', '');
         concurrencyEl.value = loadFromStorage('concurrency', '8');
+        useCorsProxyEl.checked = loadFromStorage('use-cors-proxy', true);
       }
 
       // שמירת הגדרות בעת שינוי
@@ -224,6 +246,7 @@
         extraHeadersEl.addEventListener('input', () => saveToStorage('extra-headers', extraHeadersEl.value));
         skuColumnNameEl.addEventListener('input', () => saveToStorage('sku-column-name', skuColumnNameEl.value));
         concurrencyEl.addEventListener('change', () => saveToStorage('concurrency', concurrencyEl.value));
+        useCorsProxyEl.addEventListener('change', () => saveToStorage('use-cors-proxy', useCorsProxyEl.checked));
       }
 
       // עדכון תצוגה מקדימה של הסטטוס
@@ -333,11 +356,14 @@
         return parseInt(document.querySelector('input[name="status"]:checked').value, 10);
       }
 
-      async function sendSingle(apiUrl, method, headers, sku) {
+      async function sendSingle(originalApiUrl, method, headers, sku) {
         const status = getSelectedStatus();
         const body = { General: [ { SKU: sku, Status: status } ] };
         
-        console.log(`שולח בקשה עבור ${sku} עם סטטוס ${status}:`, { apiUrl, method, headers, body });
+        // בניית כתובת ה-API עם או בלי CORS Proxy
+        const apiUrl = buildApiUrl(originalApiUrl);
+        
+        console.log(`שולח בקשה עבור ${sku} עם סטטוס ${status}:`, { originalApiUrl, apiUrl, method, headers, body });
         
         try {
           const res = await fetch(apiUrl, {
@@ -369,11 +395,14 @@
         }
       }
 
-      async function sendBulk(apiUrl, method, headers, skus) {
+      async function sendBulk(originalApiUrl, method, headers, skus) {
         const status = getSelectedStatus();
         const body = { General: skus.map(s => ({ SKU: s, Status: status })) };
         
-        console.log(`שולח בקשה מרוכזת עבור ${skus.length} מקטים עם סטטוס ${status}:`, { apiUrl, method, headers, body });
+        // בניית כתובת ה-API עם או בלי CORS Proxy
+        const apiUrl = buildApiUrl(originalApiUrl);
+        
+        console.log(`שולח בקשה מרוכזת עבור ${skus.length} מקטים עם סטטוס ${status}:`, { originalApiUrl, apiUrl, method, headers, body });
         
         try {
           const res = await fetch(apiUrl, {
@@ -407,20 +436,25 @@
 
       // פונקציה לבדיקת חיבור ל-API
       async function testApiConnection() {
-        const apiUrl = apiUrlEl.value.trim();
+        const originalApiUrl = apiUrlEl.value.trim();
         const method = apiMethodEl.value;
         const headers = buildHeaders();
         
-        if (!apiUrl) {
+        if (!originalApiUrl) {
           alert('יש למלא כתובת API תחילה');
           return false;
         }
+        
+        // בניית כתובת ה-API עם או בלי CORS Proxy
+        const apiUrl = buildApiUrl(originalApiUrl);
         
         // בדיקה אם יש טוקן
         const authHeaderName = authHeaderNameEl.value.trim();
         const authHeaderValue = authHeaderValueEl.value.trim();
         
         console.log('ערכי כותרות:', { authHeaderName, authHeaderValue });
+        console.log('כתובת מקורית:', originalApiUrl);
+        console.log('כתובת עם CORS Proxy:', apiUrl);
         
         if (!authHeaderName || !authHeaderValue) {
           alert('יש למלא גם שם כותרת האימות וגם ערך הכותרת (טוקן)');
@@ -434,7 +468,7 @@
         }
         
         try {
-          console.log('בודק חיבור ל-API...', { apiUrl, method, headers });
+          console.log('בודק חיבור ל-API...', { originalApiUrl, apiUrl, method, headers });
           console.log('פירוט כותרות:', JSON.stringify(headers, null, 2));
           
           // שליחת בקשה בדיקה עם SKU דמה
@@ -550,11 +584,11 @@
       });
 
       runBtn.addEventListener('click', async () => {
-        const apiUrl = apiUrlEl.value.trim();
+        const originalApiUrl = apiUrlEl.value.trim();
         const method = apiMethodEl.value;
         const bulkMode = bulkModeEl.value;
         
-        if (!apiUrl) { 
+        if (!originalApiUrl) { 
           alert('יש למלא כתובת API'); 
           return; 
         }
@@ -582,7 +616,7 @@
         try {
           if (bulkMode === 'bulk') {
             try {
-              await sendBulk(apiUrl, method, headers, parsedSkus);
+              await sendBulk(originalApiUrl, method, headers, parsedSkus);
               statOk.textContent = String(parsedSkus.length);
               setProgress(parsedSkus.length, parsedSkus.length);
               alert(`✅ עדכון הסטטוס הושלם בהצלחה עבור ${parsedSkus.length} מקטים!`);
@@ -600,7 +634,7 @@
             
             const results = await runWithConcurrency(parsedSkus, limit, async (sku) => {
               try {
-                await sendSingle(apiUrl, method, headers, sku);
+                await sendSingle(originalApiUrl, method, headers, sku);
                 return { success: true };
               } catch (error) {
                 return { success: false, error: error.message };
