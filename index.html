@@ -45,6 +45,9 @@
                 <div class="mt-1 text-xs text-gray-500">
                   CORS Proxy עוזר לפתור בעיות גישה משרתים שלא מאפשרים בקשות מהדפדפן
                 </div>
+                <div class="mt-1 text-xs text-green-600">
+                  ✨ שופר: המערכת תנסה אוטומטית מספר פרוקסי אם הראשון נכשל
+                </div>
               </div>
             </label>
             <div class="grid grid-cols-2 gap-3">
@@ -194,14 +197,25 @@
       ];
 
       // פונקציה לטיפול ב-CORS Proxy
-      function buildApiUrl(originalUrl) {
+      function buildApiUrl(originalUrl, proxyIndex = 0) {
         if (!useCorsProxyEl.checked) {
           return originalUrl;
         }
         
-        // שימוש ב-CORS Proxy
-        const corsProxy = 'https://cors-anywhere.herokuapp.com/';
-        return corsProxy + originalUrl;
+        // שימוש ב-CORS Proxy אמין יותר
+        const corsProxies = [
+          'https://api.allorigins.win/raw?url=',
+          'https://cors-anywhere.herokuapp.com/',
+          'https://thingproxy.freeboard.io/fetch/'
+        ];
+        
+        // נסה את הפרוקסי לפי האינדקס
+        if (proxyIndex < corsProxies.length) {
+          return corsProxies[proxyIndex] + originalUrl;
+        }
+        
+        // אם לא עובד, נסה ישירות
+        return originalUrl;
       }
 
       // פונקציות לשמירה וטעינה מ-localStorage
@@ -360,78 +374,126 @@
         const status = getSelectedStatus();
         const body = { General: [ { SKU: sku, Status: status } ] };
         
-        // בניית כתובת ה-API עם או בלי CORS Proxy
-        const apiUrl = buildApiUrl(originalApiUrl);
-        
-        console.log(`שולח בקשה עבור ${sku} עם סטטוס ${status}:`, { originalApiUrl, apiUrl, method, headers, body });
-        
-        try {
-          const res = await fetch(apiUrl, {
-            method,
-            headers,
-            body: JSON.stringify(body),
-          });
-          
-          console.log(`תגובה עבור ${sku}:`, res.status, res.statusText);
-          
-          if (!res.ok) {
-            const text = await res.text().catch(() => 'לא ניתן לקרוא את התגובה');
-            throw new Error(`HTTP ${res.status} ${res.statusText} - ${text}`);
+        // נסה חיבור ישיר קודם
+        if (!useCorsProxyEl.checked) {
+          try {
+            const res = await fetch(originalApiUrl, {
+              method,
+              headers,
+              body: JSON.stringify(body),
+            });
+            
+            if (res.ok) {
+              console.log(`תגובה מוצלחת עבור ${sku}:`, res.status, res.statusText);
+              return true;
+            }
+          } catch (error) {
+            console.log(`חיבור ישיר נכשל עבור ${sku}, מנסה עם CORS Proxy...`);
           }
-          
-          const responseText = await res.text().catch(() => 'תגובה ריקה');
-          console.log(`תגובה מוצלחת עבור ${sku}:`, responseText);
-          
-          return true;
-        } catch (error) {
-          console.error(`שגיאה בשליחה עבור ${sku}:`, error);
-          
-          // בדיקה אם זו בעיית CORS
-          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-            throw new Error(`בעיית CORS או רשת. וודאו שה-API מאפשר בקשות מהדפדפן או השתמשו בפרוקסי שרת. שגיאה: ${error.message}`);
-          }
-          
-          throw error;
         }
+        
+        // נסה עם CORS Proxy אם נבחר או אם חיבור ישיר נכשל
+        if (useCorsProxyEl.checked) {
+          for (let proxyIndex = 0; proxyIndex < 3; proxyIndex++) {
+            try {
+              const apiUrl = buildApiUrl(originalApiUrl, proxyIndex);
+              console.log(`שולח בקשה עבור ${sku} עם CORS Proxy ${proxyIndex + 1}:`, { originalApiUrl, apiUrl, method, headers, body });
+              
+              const res = await fetch(apiUrl, {
+                method,
+                headers,
+                body: JSON.stringify(body),
+              });
+              
+              console.log(`תגובה עבור ${sku}:`, res.status, res.statusText);
+              
+              if (res.ok) {
+                const responseText = await res.text().catch(() => 'תגובה ריקה');
+                console.log(`תגובה מוצלחת עבור ${sku}:`, responseText);
+                return true;
+              } else if (res.status === 403 && proxyIndex < 2) {
+                console.log(`CORS Proxy ${proxyIndex + 1} החזיר 403 עבור ${sku}, מנסה הבא...`);
+                continue;
+              } else {
+                const text = await res.text().catch(() => 'לא ניתן לקרוא את התגובה');
+                throw new Error(`HTTP ${res.status} ${res.statusText} - ${text}`);
+              }
+            } catch (error) {
+              console.log(`CORS Proxy ${proxyIndex + 1} נכשל עבור ${sku}:`, error.message);
+              if (proxyIndex === 2) {
+                // זה היה הניסיון האחרון
+                break;
+              }
+              continue;
+            }
+          }
+        }
+        
+        // אם הגענו לכאן, כל הניסיונות נכשלו
+        throw new Error(`לא ניתן לשלוח בקשה עבור ${sku}. נסו לבדוק את הגדרות ה-API או לנסות בלי CORS Proxy.`);
       }
 
       async function sendBulk(originalApiUrl, method, headers, skus) {
         const status = getSelectedStatus();
         const body = { General: skus.map(s => ({ SKU: s, Status: status })) };
         
-        // בניית כתובת ה-API עם או בלי CORS Proxy
-        const apiUrl = buildApiUrl(originalApiUrl);
-        
-        console.log(`שולח בקשה מרוכזת עבור ${skus.length} מקטים עם סטטוס ${status}:`, { originalApiUrl, apiUrl, method, headers, body });
-        
-        try {
-          const res = await fetch(apiUrl, {
-            method,
-            headers,
-            body: JSON.stringify(body),
-          });
-          
-          console.log(`תגובה לבקשה מרוכזת:`, res.status, res.statusText);
-          
-          if (!res.ok) {
-            const text = await res.text().catch(() => 'לא ניתן לקרוא את התגובה');
-            throw new Error(`HTTP ${res.status} ${res.statusText} - ${text}`);
+        // נסה חיבור ישיר קודם
+        if (!useCorsProxyEl.checked) {
+          try {
+            const res = await fetch(originalApiUrl, {
+              method,
+              headers,
+              body: JSON.stringify(body),
+            });
+            
+            if (res.ok) {
+              console.log(`תגובה מוצלחת לבקשה מרוכזת:`, res.status, res.statusText);
+              return true;
+            }
+          } catch (error) {
+            console.log(`חיבור ישיר נכשל לבקשה מרוכזת, מנסה עם CORS Proxy...`);
           }
-          
-          const responseText = await res.text().catch(() => 'תגובה ריקה');
-          console.log(`תגובה מוצלחת לבקשה מרוכזת:`, responseText);
-          
-          return true;
-        } catch (error) {
-          console.error(`שגיאה בבקשה מרוכזת:`, error);
-          
-          // בדיקה אם זו בעיית CORS
-          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-            throw new Error(`בעיית CORS או רשת. וודאו שה-API מאפשר בקשות מהדפדפן או השתמשו בפרוקסי שרת. שגיאה: ${error.message}`);
-          }
-          
-          throw error;
         }
+        
+        // נסה עם CORS Proxy אם נבחר או אם חיבור ישיר נכשל
+        if (useCorsProxyEl.checked) {
+          for (let proxyIndex = 0; proxyIndex < 3; proxyIndex++) {
+            try {
+              const apiUrl = buildApiUrl(originalApiUrl, proxyIndex);
+              console.log(`שולח בקשה מרוכזת עם CORS Proxy ${proxyIndex + 1}:`, { originalApiUrl, apiUrl, method, headers, body });
+              
+              const res = await fetch(apiUrl, {
+                method,
+                headers,
+                body: JSON.stringify(body),
+              });
+              
+              console.log(`תגובה לבקשה מרוכזת:`, res.status, res.statusText);
+              
+              if (res.ok) {
+                const responseText = await res.text().catch(() => 'תגובה ריקה');
+                console.log(`תגובה מוצלחת לבקשה מרוכזת:`, responseText);
+                return true;
+              } else if (res.status === 403 && proxyIndex < 2) {
+                console.log(`CORS Proxy ${proxyIndex + 1} החזיר 403 לבקשה מרוכזת, מנסה הבא...`);
+                continue;
+              } else {
+                const text = await res.text().catch(() => 'לא ניתן לקרוא את התגובה');
+                throw new Error(`HTTP ${res.status} ${res.statusText} - ${text}`);
+              }
+            } catch (error) {
+              console.log(`CORS Proxy ${proxyIndex + 1} נכשל לבקשה מרוכזת:`, error.message);
+              if (proxyIndex === 2) {
+                // זה היה הניסיון האחרון
+                break;
+              }
+              continue;
+            }
+          }
+        }
+        
+        // אם הגענו לכאן, כל הניסיונות נכשלו
+        throw new Error(`לא ניתן לשלוח בקשה מרוכזת. נסו לבדוק את הגדרות ה-API או לנסות בלי CORS Proxy.`);
       }
 
       // פונקציה לבדיקת חיבור ל-API
@@ -445,16 +507,12 @@
           return false;
         }
         
-        // בניית כתובת ה-API עם או בלי CORS Proxy
-        const apiUrl = buildApiUrl(originalApiUrl);
-        
         // בדיקה אם יש טוקן
         const authHeaderName = authHeaderNameEl.value.trim();
         const authHeaderValue = authHeaderValueEl.value.trim();
         
         console.log('ערכי כותרות:', { authHeaderName, authHeaderValue });
         console.log('כתובת מקורית:', originalApiUrl);
-        console.log('כתובת עם CORS Proxy:', apiUrl);
         
         if (!authHeaderName || !authHeaderValue) {
           alert('יש למלא גם שם כותרת האימות וגם ערך הכותרת (טוקן)');
@@ -467,50 +525,69 @@
           return false;
         }
         
-        try {
-          console.log('בודק חיבור ל-API...', { originalApiUrl, apiUrl, method, headers });
-          console.log('פירוט כותרות:', JSON.stringify(headers, null, 2));
-          
-          // שליחת בקשה בדיקה עם SKU דמה
-          const testBody = { General: [ { SKU: "TEST_SKU", Status: getSelectedStatus() } ] };
-          
-          const res = await fetch(apiUrl, {
-            method,
-            headers,
-            body: JSON.stringify(testBody),
-          });
-          
-          console.log('תגובת בדיקה:', res.status, res.statusText);
-          
-          if (res.ok) {
-            alert('✅ חיבור ל-API תקין! ניתן להמשיך.');
-            return true;
-          } else {
-            const errorText = await res.text().catch(() => 'לא ניתן לקרוא את התגובה');
-            alert(`⚠️ ה-API הגיב עם שגיאה: ${res.status} ${res.statusText}\n\n${errorText}`);
-            return false;
+        // נסה חיבור ישיר קודם
+        if (!useCorsProxyEl.checked) {
+          try {
+            const res = await testSingleConnection(originalApiUrl, method, headers);
+            if (res.ok) {
+              alert('✅ חיבור ישיר ל-API תקין! ניתן להמשיך.');
+              return true;
+            }
+          } catch (error) {
+            console.log('חיבור ישיר נכשל, מנסה עם CORS Proxy...');
           }
-          
-        } catch (error) {
-          console.error('שגיאה בבדיקת חיבור:', error);
-          
-          let errorMessage = 'שגיאה בבדיקת חיבור ל-API:\n\n';
-          
-          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-            errorMessage += '🔴 בעיית CORS או רשת!\n\n';
-            errorMessage += 'פתרונות אפשריים:\n';
-            errorMessage += '1. וודאו שה-API מאפשר בקשות מהדפדפן (CORS)\n';
-            errorMessage += '2. השתמשו בפרוקסי שרת\n';
-            errorMessage += '3. בדקו שהכתובת נכונה\n';
-            errorMessage += '4. בדקו שהשרת פועל\n\n';
-            errorMessage += `שגיאה טכנית: ${error.message}`;
-          } else {
-            errorMessage += error.message;
-          }
-          
-          alert(errorMessage);
-          return false;
         }
+        
+        // נסה עם CORS Proxy אם נבחר או אם חיבור ישיר נכשל
+        if (useCorsProxyEl.checked) {
+          for (let proxyIndex = 0; proxyIndex < 3; proxyIndex++) {
+            try {
+              const apiUrl = buildApiUrl(originalApiUrl, proxyIndex);
+              console.log(`מנסה CORS Proxy ${proxyIndex + 1}:`, apiUrl);
+              
+              const res = await testSingleConnection(apiUrl, method, headers);
+              if (res.ok) {
+                alert(`✅ חיבור ל-API תקין עם CORS Proxy ${proxyIndex + 1}! ניתן להמשיך.`);
+                return true;
+              } else if (res.status === 403) {
+                console.log(`CORS Proxy ${proxyIndex + 1} החזיר 403, מנסה הבא...`);
+                continue;
+              } else {
+                const errorText = await res.text().catch(() => 'לא ניתן לקרוא את התגובה');
+                alert(`⚠️ ה-API הגיב עם שגיאה: ${res.status} ${res.statusText}\n\n${errorText}`);
+                return false;
+              }
+            } catch (error) {
+              console.log(`CORS Proxy ${proxyIndex + 1} נכשל:`, error.message);
+              if (proxyIndex === 2) {
+                // זה היה הניסיון האחרון
+                break;
+              }
+              continue;
+            }
+          }
+        }
+        
+        // אם הגענו לכאן, כל הניסיונות נכשלו
+        alert('❌ לא ניתן להתחבר ל-API. נסו:\n\n1. לבדוק שהכתובת נכונה\n2. לבדוק שהשרת פועל\n3. לנסות בלי CORS Proxy\n4. לבדוק הגדרות CORS בשרת');
+        return false;
+      }
+      
+      // פונקציה עזר לבדיקת חיבור בודד
+      async function testSingleConnection(apiUrl, method, headers) {
+        const testBody = { General: [ { SKU: "TEST_SKU", Status: getSelectedStatus() } ] };
+        
+        console.log('בודק חיבור ל-API...', { apiUrl, method, headers });
+        console.log('פירוט כותרות:', JSON.stringify(headers, null, 2));
+        
+        const res = await fetch(apiUrl, {
+          method,
+          headers,
+          body: JSON.stringify(testBody),
+        });
+        
+        console.log('תגובת בדיקה:', res.status, res.statusText);
+        return res;
       }
 
       async function runWithConcurrency(items, limit, worker) {
