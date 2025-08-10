@@ -204,9 +204,10 @@
         
         // שימוש ב-CORS Proxy אמין יותר
         const corsProxies = [
-          'https://api.allorigins.win/raw?url=',
+          'https://thingproxy.freeboard.io/fetch/',
           'https://cors-anywhere.herokuapp.com/',
-          'https://thingproxy.freeboard.io/fetch/'
+          'https://api.allorigins.win/raw?url=',
+          'https://cors.bridged.cc/'
         ];
         
         // נסה את הפרוקסי לפי האינדקס
@@ -394,7 +395,7 @@
         
         // נסה עם CORS Proxy אם נבחר או אם חיבור ישיר נכשל
         if (useCorsProxyEl.checked) {
-          for (let proxyIndex = 0; proxyIndex < 3; proxyIndex++) {
+          for (let proxyIndex = 0; proxyIndex < 4; proxyIndex++) {
             try {
               const apiUrl = buildApiUrl(originalApiUrl, proxyIndex);
               console.log(`שולח בקשה עבור ${sku} עם CORS Proxy ${proxyIndex + 1}:`, { originalApiUrl, apiUrl, method, headers, body });
@@ -411,7 +412,7 @@
                 const responseText = await res.text().catch(() => 'תגובה ריקה');
                 console.log(`תגובה מוצלחת עבור ${sku}:`, responseText);
                 return true;
-              } else if (res.status === 403 && proxyIndex < 2) {
+              } else if (res.status === 403 && proxyIndex < 3) {
                 console.log(`CORS Proxy ${proxyIndex + 1} החזיר 403 עבור ${sku}, מנסה הבא...`);
                 continue;
               } else {
@@ -420,7 +421,7 @@
               }
             } catch (error) {
               console.log(`CORS Proxy ${proxyIndex + 1} נכשל עבור ${sku}:`, error.message);
-              if (proxyIndex === 2) {
+              if (proxyIndex === 3) {
                 // זה היה הניסיון האחרון
                 break;
               }
@@ -457,7 +458,7 @@
         
         // נסה עם CORS Proxy אם נבחר או אם חיבור ישיר נכשל
         if (useCorsProxyEl.checked) {
-          for (let proxyIndex = 0; proxyIndex < 3; proxyIndex++) {
+          for (let proxyIndex = 0; proxyIndex < 4; proxyIndex++) {
             try {
               const apiUrl = buildApiUrl(originalApiUrl, proxyIndex);
               console.log(`שולח בקשה מרוכזת עם CORS Proxy ${proxyIndex + 1}:`, { originalApiUrl, apiUrl, method, headers, body });
@@ -474,7 +475,7 @@
                 const responseText = await res.text().catch(() => 'תגובה ריקה');
                 console.log(`תגובה מוצלחת לבקשה מרוכזת:`, responseText);
                 return true;
-              } else if (res.status === 403 && proxyIndex < 2) {
+              } else if (res.status === 403 && proxyIndex < 3) {
                 console.log(`CORS Proxy ${proxyIndex + 1} החזיר 403 לבקשה מרוכזת, מנסה הבא...`);
                 continue;
               } else {
@@ -483,7 +484,7 @@
               }
             } catch (error) {
               console.log(`CORS Proxy ${proxyIndex + 1} נכשל לבקשה מרוכזת:`, error.message);
-              if (proxyIndex === 2) {
+              if (proxyIndex === 3) {
                 // זה היה הניסיון האחרון
                 break;
               }
