@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>עדכון סטטוס לפי מק"ט (Excel → API)</title>
+
+    <!-- UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;700&display=swap" rel="stylesheet" />
+
+    <!-- Excel parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <style>
+      body { font-family: 'Assistant', sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    </style>
+  </head>
+  <body class="bg-gray-100 text-gray-800">
+    <header class="bg-white shadow-md sticky top-0 z-50">
+      <nav class="container mx-auto px-6 py-4 flex items-center justify-between">
+        <h1 class="text-2xl md:text-3xl font-bold text-red-800">עדכון סטטוס מוצרים דרך API</h1>
+        <a href="./INDEX.HTML" class="text-sm text-gray-500 hover:text-red-700">חזרה לאתר</a>
+      </nav>
+    </header>
+
+    <main class="container mx-auto px-6 py-8">
+      <section class="bg-white p-6 rounded-lg shadow-lg space-y-6">
+        <p class="text-gray-700">העלו קובץ Excel/CSV שמכיל עמודת מק"ט (SKU). המערכת תזהה את המקטים ותשלח ל-API עדכון סטטוס לפי בחירתכם.</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="space-y-4">
+            <h2 class="text-xl font-bold text-red-800">הגדרות API</h2>
+            <label class="block">
+              <span class="block mb-1">כתובת ה-API</span>
+              <input id="api-url" type="text" class="w-full border rounded px-3 py-2" placeholder="https://api.example.com/products/update" />
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <label>
+                <span class="block mb-1">Method</span>
+                <select id="api-method" class="w-full border rounded px-3 py-2">
+                  <option value="POST" selected>POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="PATCH">PATCH</option>
+                </select>
+              </label>
+              <label>
+                <span class="block mb-1">שליחה מרוכזת (Bulk)</span>
+                <select id="bulk-mode" class="w-full border rounded px-3 py-2">
+                  <option value="single" selected>בקשות בודדות</option>
+                  <option value="bulk">בקשה אחת מרוכזת</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <label>
+                <span class="block mb-1">כותרת אימות (Header)</span>
+                <input id="auth-header-name" type="text" class="w-full border rounded px-3 py-2" value="Authorization" />
+                <span class="text-xs text-gray-500">לדוגמה: Authorization, X-API-Key</span>
+              </label>
+              <label>
+                <span class="block mb-1">ערך הכותרת (נשמר אוטומטית)</span>
+                <input id="auth-header-value" type="text" class="w-full border rounded px-3 py-2" placeholder="Bearer xxxxxx" />
+                <span class="text-xs text-gray-500">לדוגמה: Bearer token123 או רק token123</span>
+              </label>
+            </div>
+
+            <label class="block">
+              <span class="block mb-1">כותרות נוספות (JSON אופציונלי)</span>
+              <input id="extra-headers" type="text" class="w-full border rounded px-3 py-2 mono" placeholder='{"X-API-Key":"abc123"}' />
+              <span class="text-xs text-gray-500">אופציונלי. רק שמות תקינים: אותיות, מספרים, מקפים וקווים תחתונים</span>
+            </label>
+
+            <div class="bg-blue-50 border border-blue-200 rounded p-3">
+              <p class="text-sm text-blue-800">
+                <strong>טיפ:</strong> הטוקן יישמר אוטומטית בדפדפן. בפעם הבאה שתפתחו את האפליקציה, הוא יטען אוטומטית.
+              </p>
+            </div>
+
+            <p class="text-sm text-gray-500">הגוף שיישלח: { "General": [ { "SKU": "...", "Status": <span id="status-preview">0</span> } ] }</p>
+          </div>
+
+          <div class="space-y-4">
+            <h2 class="text-xl font-bold text-red-800">קובץ קלט</h2>
+            <label class="block">
+              <span class="block mb-1">Excel/CSV</span>
+              <input id="file-input" type="file" accept=".xlsx,.xls,.csv" class="w-full border rounded px-3 py-2 bg-gray-50" />
+            </label>
+
+            <label class="block">
+              <span class="block mb-1">שם עמודת המקט (אם לא מזוהה אוטומטית)</span>
+              <input id="sku-column-name" type="text" class="w-full border rounded px-3 py-2" placeholder="SKU / מק"ט" />
+            </label>
+
+            <div class="bg-yellow-50 border border-yellow-200 rounded p-3">
+              <h3 class="font-bold text-yellow-800 mb-2">בחירת סטטוס</h3>
+              <div class="flex gap-4">
+                <label class="flex items-center">
+                  <input type="radio" name="status" value="0" checked class="mr-2" />
+                  <span class="text-sm">לא פעיל (Status = 0)</span>
+                </label>
+                <label class="flex items-center">
+                  <input type="radio" name="status" value="1" class="mr-2" />
+                  <span class="text-sm">פעיל (Status = 1)</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <button id="analyze-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold px-5 py-2 rounded">ניתוח קובץ</button>
+              <button id="test-connection-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2 rounded">בדיקת חיבור</button>
+              <button id="run-btn" disabled class="bg-red-700 hover:bg-red-800 disabled:opacity-40 text-white font-bold px-5 py-2 rounded">עדכון סטטוס</button>
+            </div>
+
+            <div id="file-summary" class="text-sm text-gray-700"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="mt-8 bg-white p-6 rounded-lg shadow-lg space-y-4">
+        <h2 class="text-xl font-bold text-red-800">התקדמות</h2>
+        <div class="w-full bg-gray-200 rounded h-3 overflow-hidden">
+          <div id="progress-bar" class="h-3 bg-green-500" style="width: 0%"></div>
+        </div>
+        <div class="flex gap-4 text-sm">
+          <span>סך הכל: <span id="stat-total">0</span></span>
+          <span class="text-green-700">הצליחו: <span id="stat-ok">0</span></span>
+          <span class="text-red-700">נכשלו: <span id="stat-fail">0</span></span>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button id="download-failures" disabled class="bg-gray-100 hover:bg-gray-200 text-gray-800 border px-4 py-2 rounded">הורדת כשלים (CSV)</button>
+          <label class="text-sm text-gray-500">הגבלת מקביליות</label>
+          <select id="concurrency" class="border rounded px-2 py-1 text-sm">
+            <option>4</option>
+            <option selected>8</option>
+            <option>12</option>
+            <option>20</option>
+          </select>
+        </div>
+
+        <details>
+          <summary class="cursor-pointer select-none">פירוט כשלים</summary>
+          <div id="failures" class="mt-3 text-sm whitespace-pre-wrap"></div>
+        </details>
+
+        <p class="text-xs text-gray-500">הערת CORS: אם הדפדפן חוסם את הבקשה, יש לאפשר CORS בשרת ה-API או להשתמש בפרוקסי שרת.</p>
+      </section>
+    </main>
+
+    <script>
+      const fileInput = document.getElementById('file-input');
+      const analyzeBtn = document.getElementById('analyze-btn');
+      const testConnectionBtn = document.getElementById('test-connection-btn');
+      const runBtn = document.getElementById('run-btn');
+      const fileSummary = document.getElementById('file-summary');
+      const progressBar = document.getElementById('progress-bar');
+      const statTotal = document.getElementById('stat-total');
+      const statOk = document.getElementById('stat-ok');
+      const statFail = document.getElementById('stat-fail');
+      const failuresBox = document.getElementById('failures');
+      const downloadFailuresBtn = document.getElementById('download-failures');
+      const statusPreview = document.getElementById('status-preview');
+
+      const apiUrlEl = document.getElementById('api-url');
+      const apiMethodEl = document.getElementById('api-method');
+      const bulkModeEl = document.getElementById('bulk-mode');
+      const authHeaderNameEl = document.getElementById('auth-header-name');
+      const authHeaderValueEl = document.getElementById('auth-header-value');
+      const extraHeadersEl = document.getElementById('extra-headers');
+      const skuColumnNameEl = document.getElementById('sku-column-name');
+      const concurrencyEl = document.getElementById('concurrency');
+
+      let parsedSkus = [];
+      let lastFailures = [];
+
+      const POSSIBLE_SKU_HEADERS = [
+        'SKU', 'sku', 'Sku', 'ERPid', 'Erpid', 'erpId', 'ERPID',
+        'מקט', 'מק"ט', 'מקט.', 'מק"ט.', 'מקטים', 'ProductSKU', 'Barcode', 'ברקוד'
+      ];
+
+      // פונקציות לשמירה וטעינה מ-localStorage
+      function saveToStorage(key, value) {
+        try {
+          localStorage.setItem(key, JSON.stringify(value));
+        } catch (e) {
+          console.warn('לא ניתן לשמור ב-localStorage:', e);
+        }
+      }
+
+      function loadFromStorage(key, defaultValue = '') {
+        try {
+          const stored = localStorage.getItem(key);
+          return stored ? JSON.parse(stored) : defaultValue;
+        } catch (e) {
+          console.warn('לא ניתן לטעון מ-localStorage:', e);
+          return defaultValue;
+        }
+      }
+
+      // טעינת הגדרות שמורות
+      function loadSavedSettings() {
+        apiUrlEl.value = loadFromStorage('api-url', '');
+        apiMethodEl.value = loadFromStorage('api-method', 'POST');
+        bulkModeEl.value = loadFromStorage('bulk-mode', 'single');
+        authHeaderNameEl.value = loadFromStorage('auth-header-name', 'Authorization');
+        authHeaderValueEl.value = loadFromStorage('auth-header-value', '');
+        extraHeadersEl.value = loadFromStorage('extra-headers', '');
+        skuColumnNameEl.value = loadFromStorage('sku-column-name', '');
+        concurrencyEl.value = loadFromStorage('concurrency', '8');
+      }
+
+      // שמירת הגדרות בעת שינוי
+      function setupAutoSave() {
+        apiUrlEl.addEventListener('input', () => saveToStorage('api-url', apiUrlEl.value));
+        apiMethodEl.addEventListener('change', () => saveToStorage('api-method', apiMethodEl.value));
+        bulkModeEl.addEventListener('change', () => saveToStorage('bulk-mode', bulkModeEl.value));
+        authHeaderNameEl.addEventListener('input', () => saveToStorage('auth-header-name', authHeaderNameEl.value));
+        authHeaderValueEl.addEventListener('input', () => saveToStorage('auth-header-value', authHeaderValueEl.value));
+        extraHeadersEl.addEventListener('input', () => saveToStorage('extra-headers', extraHeadersEl.value));
+        skuColumnNameEl.addEventListener('input', () => saveToStorage('sku-column-name', skuColumnNameEl.value));
+        concurrencyEl.addEventListener('change', () => saveToStorage('concurrency', concurrencyEl.value));
+      }
+
+      // עדכון תצוגה מקדימה של הסטטוס
+      function updateStatusPreview() {
+        const selectedStatus = document.querySelector('input[name="status"]:checked').value;
+        statusPreview.textContent = selectedStatus;
+      }
+
+      function setProgress(done, total) {
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        progressBar.style.width = pct + '%';
+      }
+
+      function readFileAsArrayBuffer(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsArrayBuffer(file);
+        });
+      }
+
+      function detectSkuColumn(headers, userProvided) {
+        if (userProvided) {
+          const idx = headers.findIndex(h => String(h || '').trim().toLowerCase() === String(userProvided).trim().toLowerCase());
+          if (idx !== -1) return idx;
+        }
+        for (const candidate of POSSIBLE_SKU_HEADERS) {
+          const idx = headers.findIndex(h => String(h || '').trim().toLowerCase() === candidate.toLowerCase());
+          if (idx !== -1) return idx;
+        }
+        return -1;
+      }
+
+      async function parseSkusFromFile(file) {
+        const buf = await readFileAsArrayBuffer(file);
+        const wb = XLSX.read(buf, { type: 'array' });
+        const sheetName = wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (!rows || rows.length === 0) return [];
+
+        const headerRow = rows[0];
+        const provided = skuColumnNameEl.value.trim();
+        const skuColIdx = detectSkuColumn(headerRow, provided);
+        if (skuColIdx === -1) {
+          throw new Error('לא נמצאה עמודת מק"ט. הזינו שם עמודה ידני או דאגו שהכותרת תהיה למשל "SKU" או "מק\"ט"');
+        }
+
+        const skus = [];
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          const raw = row[skuColIdx];
+          const sku = String(raw == null ? '' : raw).trim();
+          if (!sku) continue;
+          skus.push(sku);
+        }
+
+        // ייחוד וניקוי
+        const unique = Array.from(new Set(skus));
+        return unique;
+      }
+
+      function tryParseExtraHeaders(jsonText) {
+        if (!jsonText || !jsonText.trim()) return {};
+        try { return JSON.parse(jsonText); } catch { return {}; }
+      }
+
+      function buildHeaders() {
+        const headers = { 'Content-Type': 'application/json' };
+        
+        // בדיקה תקינות כותרת האימות
+        const name = authHeaderNameEl.value.trim();
+        const value = authHeaderValueEl.value.trim();
+        
+        if (name && value) {
+          // וידוא שהשם תקין
+          if (name.length > 0 && /^[a-zA-Z0-9\-_]+$/.test(name)) {
+            headers[name] = value;
+          } else {
+            console.warn('שם כותרת לא תקין:', name);
+          }
+        }
+        
+        // בדיקה תקינות כותרות נוספות
+        try {
+          const extra = tryParseExtraHeaders(extraHeadersEl.value);
+          if (extra && typeof extra === 'object') {
+            // וידוא שכל השמות תקינים
+            Object.keys(extra).forEach(key => {
+              if (key && typeof key === 'string' && key.length > 0 && /^[a-zA-Z0-9\-_]+$/.test(key)) {
+                headers[key] = extra[key];
+              } else {
+                console.warn('שם כותרת נוספת לא תקין:', key);
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('שגיאה בפרסור כותרות נוספות:', e);
+        }
+        
+        console.log('כותרות שנבנו:', headers);
+        return headers;
+      }
+
+      function getSelectedStatus() {
+        return parseInt(document.querySelector('input[name="status"]:checked').value, 10);
+      }
+
+      async function sendSingle(apiUrl, method, headers, sku) {
+        const status = getSelectedStatus();
+        const body = { General: [ { SKU: sku, Status: status } ] };
+        
+        console.log(`שולח בקשה עבור ${sku} עם סטטוס ${status}:`, { apiUrl, method, headers, body });
+        
+        try {
+          const res = await fetch(apiUrl, {
+            method,
+            headers,
+            body: JSON.stringify(body),
+          });
+          
+          console.log(`תגובה עבור ${sku}:`, res.status, res.statusText);
+          
+          if (!res.ok) {
+            const text = await res.text().catch(() => 'לא ניתן לקרוא את התגובה');
+            throw new Error(`HTTP ${res.status} ${res.statusText} - ${text}`);
+          }
+          
+          const responseText = await res.text().catch(() => 'תגובה ריקה');
+          console.log(`תגובה מוצלחת עבור ${sku}:`, responseText);
+          
+          return true;
+        } catch (error) {
+          console.error(`שגיאה בשליחה עבור ${sku}:`, error);
+          
+          // בדיקה אם זו בעיית CORS
+          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            throw new Error(`בעיית CORS או רשת. וודאו שה-API מאפשר בקשות מהדפדפן או השתמשו בפרוקסי שרת. שגיאה: ${error.message}`);
+          }
+          
+          throw error;
+        }
+      }
+
+      async function sendBulk(apiUrl, method, headers, skus) {
+        const status = getSelectedStatus();
+        const body = { General: skus.map(s => ({ SKU: s, Status: status })) };
+        
+        console.log(`שולח בקשה מרוכזת עבור ${skus.length} מקטים עם סטטוס ${status}:`, { apiUrl, method, headers, body });
+        
+        try {
+          const res = await fetch(apiUrl, {
+            method,
+            headers,
+            body: JSON.stringify(body),
+          });
+          
+          console.log(`תגובה לבקשה מרוכזת:`, res.status, res.statusText);
+          
+          if (!res.ok) {
+            const text = await res.text().catch(() => 'לא ניתן לקרוא את התגובה');
+            throw new Error(`HTTP ${res.status} ${res.statusText} - ${text}`);
+          }
+          
+          const responseText = await res.text().catch(() => 'תגובה ריקה');
+          console.log(`תגובה מוצלחת לבקשה מרוכזת:`, responseText);
+          
+          return true;
+        } catch (error) {
+          console.error(`שגיאה בבקשה מרוכזת:`, error);
+          
+          // בדיקה אם זו בעיית CORS
+          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            throw new Error(`בעיית CORS או רשת. וודאו שה-API מאפשר בקשות מהדפדפן או השתמשו בפרוקסי שרת. שגיאה: ${error.message}`);
+          }
+          
+          throw error;
+        }
+      }
+
+      // פונקציה לבדיקת חיבור ל-API
+      async function testApiConnection() {
+        const apiUrl = apiUrlEl.value.trim();
+        const method = apiMethodEl.value;
+        const headers = buildHeaders();
+        
+        if (!apiUrl) {
+          alert('יש למלא כתובת API תחילה');
+          return false;
+        }
+        
+        // בדיקה אם יש טוקן
+        const authHeaderName = authHeaderNameEl.value.trim();
+        const authHeaderValue = authHeaderValueEl.value.trim();
+        
+        console.log('ערכי כותרות:', { authHeaderName, authHeaderValue });
+        
+        if (!authHeaderName || !authHeaderValue) {
+          alert('יש למלא גם שם כותרת האימות וגם ערך הכותרת (טוקן)');
+          return false;
+        }
+        
+        // בדיקה תקינות שם הכותרת
+        if (!/^[a-zA-Z0-9\-_]+$/.test(authHeaderName)) {
+          alert('שם כותרת האימות חייב להכיל רק אותיות, מספרים, מקפים וקווים תחתונים');
+          return false;
+        }
+        
+        try {
+          console.log('בודק חיבור ל-API...', { apiUrl, method, headers });
+          console.log('פירוט כותרות:', JSON.stringify(headers, null, 2));
+          
+          // שליחת בקשה בדיקה עם SKU דמה
+          const testBody = { General: [ { SKU: "TEST_SKU", Status: getSelectedStatus() } ] };
+          
+          const res = await fetch(apiUrl, {
+            method,
+            headers,
+            body: JSON.stringify(testBody),
+          });
+          
+          console.log('תגובת בדיקה:', res.status, res.statusText);
+          
+          if (res.ok) {
+            alert('✅ חיבור ל-API תקין! ניתן להמשיך.');
+            return true;
+          } else {
+            const errorText = await res.text().catch(() => 'לא ניתן לקרוא את התגובה');
+            alert(`⚠️ ה-API הגיב עם שגיאה: ${res.status} ${res.statusText}\n\n${errorText}`);
+            return false;
+          }
+          
+        } catch (error) {
+          console.error('שגיאה בבדיקת חיבור:', error);
+          
+          let errorMessage = 'שגיאה בבדיקת חיבור ל-API:\n\n';
+          
+          if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            errorMessage += '🔴 בעיית CORS או רשת!\n\n';
+            errorMessage += 'פתרונות אפשריים:\n';
+            errorMessage += '1. וודאו שה-API מאפשר בקשות מהדפדפן (CORS)\n';
+            errorMessage += '2. השתמשו בפרוקסי שרת\n';
+            errorMessage += '3. בדקו שהכתובת נכונה\n';
+            errorMessage += '4. בדקו שהשרת פועל\n\n';
+            errorMessage += `שגיאה טכנית: ${error.message}`;
+          } else {
+            errorMessage += error.message;
+          }
+          
+          alert(errorMessage);
+          return false;
+        }
+      }
+
+      async function runWithConcurrency(items, limit, worker) {
+        let inFlight = 0;
+        let idx = 0;
+        const results = [];
+        return new Promise((resolve) => {
+          const launchNext = () => {
+            if (idx >= items.length && inFlight === 0) return resolve(results);
+            while (inFlight < limit && idx < items.length) {
+              const currentIndex = idx++;
+              const item = items[currentIndex];
+              inFlight++;
+              worker(item)
+                .then((value) => results[currentIndex] = { success: true, value })
+                .catch((error) => results[currentIndex] = { success: false, error: error.message })
+                .finally(() => { inFlight--; launchNext(); });
+            }
+          };
+          launchNext();
+        });
+      }
+
+      function downloadCsv(filename, rows) {
+        const header = 'SKU,Error\n';
+        const content = rows.map(r => `${JSON.stringify(r.sku)},${JSON.stringify(r.error)}`).join('\n');
+        const blob = new Blob([header + content], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+
+      // אתחול האפליקציה
+      function initApp() {
+        loadSavedSettings();
+        setupAutoSave();
+        updateStatusPreview();
+        
+        // הוספת מאזינים לשינויי סטטוס
+        document.querySelectorAll('input[name="status"]').forEach(radio => {
+          radio.addEventListener('change', updateStatusPreview);
+        });
+      }
+
+      analyzeBtn.addEventListener('click', async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) {
+          alert('יש לבחור קובץ תחילה');
+          return;
+        }
+        try {
+          parsedSkus = await parseSkusFromFile(file);
+          fileSummary.innerHTML = parsedSkus.length
+            ? `נמצאו ${parsedSkus.length} מק"טים. דוגמא: <span class="mono">${parsedSkus.slice(0, 5).join(', ')}</span>${parsedSkus.length > 5 ? '…' : ''}`
+            : 'לא נמצאו מק"טים בקובץ';
+          runBtn.disabled = parsedSkus.length === 0;
+        } catch (err) {
+          fileSummary.textContent = err.message || String(err);
+          runBtn.disabled = true;
+        }
+      });
+
+      testConnectionBtn.addEventListener('click', async () => {
+        await testApiConnection();
+      });
+
+      runBtn.addEventListener('click', async () => {
+        const apiUrl = apiUrlEl.value.trim();
+        const method = apiMethodEl.value;
+        const bulkMode = bulkModeEl.value;
+        
+        if (!apiUrl) { 
+          alert('יש למלא כתובת API'); 
+          return; 
+        }
+        
+        if (!parsedSkus.length) { 
+          alert('אין רשימת מק"טים לשליחה. יש לנתח קובץ תחילה.'); 
+          return; 
+        }
+
+        // בדיקת חיבור לפני השליחה
+        const connectionOk = await testApiConnection();
+        if (!connectionOk) {
+          return;
+        }
+
+        const headers = buildHeaders();
+        failuresBox.textContent = '';
+        lastFailures = [];
+        statTotal.textContent = parsedSkus.length;
+        statOk.textContent = '0';
+        statFail.textContent = '0';
+        setProgress(0, parsedSkus.length);
+        runBtn.disabled = true;
+
+        try {
+          if (bulkMode === 'bulk') {
+            try {
+              await sendBulk(apiUrl, method, headers, parsedSkus);
+              statOk.textContent = String(parsedSkus.length);
+              setProgress(parsedSkus.length, parsedSkus.length);
+              alert(`✅ עדכון הסטטוס הושלם בהצלחה עבור ${parsedSkus.length} מקטים!`);
+            } catch (e) {
+              lastFailures = parsedSkus.map(sku => ({ sku, error: e.message || String(e) }));
+              statFail.textContent = String(parsedSkus.length);
+              failuresBox.textContent = lastFailures.map(x => `${x.sku} → ${x.error}`).join('\n');
+              alert(`❌ עדכון הסטטוס נכשל: ${e.message}`);
+            }
+          } else {
+            const limit = parseInt(concurrencyEl.value, 10) || 8;
+            let done = 0, ok = 0, fail = 0;
+            
+            console.log(`מתחיל שליחה עם מקביליות של ${limit}...`);
+            
+            const results = await runWithConcurrency(parsedSkus, limit, async (sku) => {
+              try {
+                await sendSingle(apiUrl, method, headers, sku);
+                return { success: true };
+              } catch (error) {
+                return { success: false, error: error.message };
+              }
+            });
+            
+            results.forEach((r, i) => {
+              done++;
+              setProgress(done, parsedSkus.length);
+              if (r && r.success) { 
+                ok++; 
+              } else { 
+                fail++; 
+                lastFailures.push({ 
+                  sku: parsedSkus[i], 
+                  error: (r && r.error) || 'Unknown error' 
+                }); 
+              }
+            });
+            
+            statOk.textContent = String(ok);
+            statFail.textContent = String(fail);
+            
+            if (lastFailures.length) {
+              failuresBox.textContent = lastFailures.map(x => `${x.sku} → ${x.error}`).join('\n');
+              alert(`⚠️ עדכון הסטטוס הושלם עם ${fail} כשלים. בדקו את פירוט הכשלים למטה.`);
+            } else {
+              alert(`✅ עדכון הסטטוס הושלם בהצלחה עבור ${ok} מקטים!`);
+            }
+          }
+        } catch (error) {
+          console.error('שגיאה כללית:', error);
+          alert(`❌ שגיאה כללית: ${error.message}`);
+        } finally {
+          runBtn.disabled = false;
+          downloadFailuresBtn.disabled = lastFailures.length === 0;
+        }
+      });
+
+      downloadFailuresBtn.addEventListener('click', () => {
+        if (!lastFailures.length) return;
+        downloadCsv('failures.csv', lastFailures);
+      });
+
+      // הפעלת האפליקציה
+      initApp();
+    </script>
+  </body>
+</html>
